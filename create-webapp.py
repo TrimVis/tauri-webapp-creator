@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 
-from time import sleep
-from os import path, mkdir , chdir, getcwd
+from os import path, mkdir , chdir, system
 from subprocess import Popen
 from shutil import rmtree, copytree
 from argparse import ArgumentParser
@@ -24,10 +23,6 @@ def create_html_file(target_url, dest_file):
 </html>
 """)
 
-def write_to_stdin(p, data):
-    sleep(1)
-    p.stdin.write(f"{data}\n")
-    # print(data, file=p.stdin, flush=True)
 
 def create_tauri_src(working_dir, app_name):
     chdir(working_dir)
@@ -38,7 +33,7 @@ def create_tauri_src(working_dir, app_name):
     return p.returncode
 
 
-def create_tauri_app(working_dir, app_name, dest_dir, args):
+def create_tauri_app(working_dir, dest_dir, args):
     chdir(path.join(working_dir, "src-tauri"))
 
     # Fix the bundle identifier
@@ -47,7 +42,7 @@ def create_tauri_app(working_dir, app_name, dest_dir, args):
         filedata = file.read()
 
     old_identifier = "com.tauri.dev"
-    new_identifier = f"com.{app_name.replace(' ', '.')}"
+    new_identifier = f"com.{args.name.replace(' ', '.')}"
     filedata = filedata.replace(old_identifier, new_identifier)
 
     with open("tauri.conf.json", "w") as file:
@@ -58,14 +53,35 @@ def create_tauri_app(working_dir, app_name, dest_dir, args):
 
     p.wait()
 
-    # Copy binaries into destination directory
-    if path.exists(dest_dir): 
-        if args.force:
-            rmtree(dest_dir)
-        else:
-            print("Build directory already exists... Aborting")
+    if not args.arch_install and not args.deb_install:
+        # Copy binaries into destination directory
+        if path.exists(dest_dir): 
+            if args.force:
+                rmtree(dest_dir)
+            else:
+                print("Build directory already exists... Aborting")
+                exit(1)
+        if args.binary_only:
+            # TODO: Add support for this (How do I detect the proper file in /target/release/)
+            print("This option is currently not supported")
             exit(1)
-    copytree('target/release/bundle/', dest_dir)
+        else:
+            copytree('target/release/bundle/', dest_dir)
+    elif args.arch_install:
+        deb_path = './target/release/bundle/deb/*.deb'
+        cmd = f"debtap -Q {deb_path}"
+        print(f"Executing '{cmd}'")
+        system(cmd)
+        tar_path = './target/release/bundle/deb/*.pkg.tar.zst'
+        cmd = f"sudo pacman -U {tar_path}"
+        print(f"Executing '{cmd}'")
+        system(cmd)
+    elif args.deb_install:
+        # TODO: Test this
+        deb_path = './target/release/bundle/deb/*.deb'
+        cmd = f"sudo dpkg {deb_path}"
+        print(f"Executing '{cmd}'")
+        system(cmd)
 
     return p.returncode
 
@@ -98,8 +114,7 @@ def main(args):
     print("Creating tauri src folder")
     create_tauri_src(working_dir, args.name)
     print("Building tauri app")
-    create_tauri_app(working_dir, args.name, build_dir,
-                     args)
+    create_tauri_app(working_dir, build_dir, args)
 
 
 if __name__ == "__main__":
@@ -113,7 +128,13 @@ if __name__ == "__main__":
     parser.add_argument('-w', '--work_dir', dest='work_dir', action='store', type=str, default="/tmp/",
                         help='Overwrite the working directory')
     parser.add_argument('-b', '--build_dir', dest='build_dir', action='store', type=str, default="./build/",
-                        help='Overwrite the target build directory')
+                        help='Overwrite the target build directory. Will be ignored if used in combination with --binary_only or --*_install')
+    parser.add_argument('--binary_only', dest='binary_only', action='store_true', default=False,
+                        help='Only create a single binary')
+    parser.add_argument('--arch_install', dest='arch_install', action='store_true', default=False,
+                        help='Install the created deb bundle using debtap and pacman')
+    parser.add_argument('--deb_install', dest='deb_install', action='store_true', default=False,
+                        help='Install the created deb bundle using dpkg')
 
     args = parser.parse_args()
     main(args)
