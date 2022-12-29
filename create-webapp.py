@@ -4,6 +4,7 @@ from time import sleep
 from os import path, mkdir , chdir, getcwd
 from subprocess import Popen
 from shutil import rmtree, copytree
+from argparse import ArgumentParser
 
 
 def create_html_file(target_url, dest_file):
@@ -37,7 +38,7 @@ def create_tauri_src(working_dir, app_name):
     return p.returncode
 
 
-def create_tauri_app(working_dir, app_name, dest_dir):
+def create_tauri_app(working_dir, app_name, dest_dir, args):
     chdir(path.join(working_dir, "src-tauri"))
 
     # Fix the bundle identifier
@@ -59,26 +60,25 @@ def create_tauri_app(working_dir, app_name, dest_dir):
 
     # Copy binaries into destination directory
     if path.exists(dest_dir): 
-        rmtree(dest_dir)
+        if args.force:
+            rmtree(dest_dir)
+        else:
+            print("Build directory already exists... Aborting")
+            exit(1)
     copytree('target/release/bundle/', dest_dir)
 
     return p.returncode
 
 
-def main():
-    initial_cwd = getcwd()
-    force = False
-
-    target = "https://music.youtube.com"
-    app_name = "Youtube Music"
+def main(args):
+    build_dir = path.realpath(args.build_dir)
 
     # Create the working_directory
     print("Creating working directory")
-    working_dir = path.join("/tmp/", app_name)
-    # TODO pjordan: Only do this using fresh argument
+    working_dir = path.join(args.work_dir, args.name)
     if not path.exists(working_dir):
         mkdir(working_dir)
-    elif force:
+    elif args.clean:
         rmtree(working_dir)
         mkdir(working_dir)
 
@@ -92,16 +92,28 @@ def main():
     html_dir = path.join(working_dir, "html")
     if not path.exists(html_dir):
         mkdir(html_dir)
-    create_html_file(target, path.join(html_dir,"index.html"))
+    create_html_file(args.url, path.join(html_dir,"index.html"))
 
     # Create the tauri src folder followed by the app
     print("Creating tauri src folder")
-    create_tauri_src(working_dir, app_name)
+    create_tauri_src(working_dir, args.name)
     print("Building tauri app")
-    create_tauri_app(working_dir, app_name, path.join(initial_cwd, "build"))
-
-
+    create_tauri_app(working_dir, args.name, build_dir,
+                     args)
 
 
 if __name__ == "__main__":
-    main()
+    parser = ArgumentParser(description='Create a lightweight tauri webapp.')
+    parser.add_argument('name', type=str, help='The name of the app that will be created')
+    parser.add_argument('url', type=str, help='The url of the target site')
+    parser.add_argument('-c', '--clean', dest='clean', action='store_true',
+                        help='force a clean build')
+    parser.add_argument('-f', '--force', dest='force', action='store_true',
+                        help='overwrite destination build directory')
+    parser.add_argument('-w', '--work_dir', dest='work_dir', action='store', type=str, default="/tmp/",
+                        help='Overwrite the working directory')
+    parser.add_argument('-b', '--build_dir', dest='build_dir', action='store', type=str, default="./build/",
+                        help='Overwrite the target build directory')
+
+    args = parser.parse_args()
+    main(args)
